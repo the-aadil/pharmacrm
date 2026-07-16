@@ -77,16 +77,12 @@ def log_interaction(rep_notes: str) -> dict:
             "products (array of objects, each with product_name string, samples_given int, lot_number string or null), "
             "next_steps (string or null), "
             "follow_ups (array of objects, each with due_date string YYYY-MM-DD, note string), "
-            "compliance_flag (boolean), compliance_notes (string or null), ai_summary.\n"
+            "compliance_flag (boolean), compliance_notes (string or null), ai_summary (2-3 sentence executive summary of the encounter).\n"
             "Rules: products and follow_ups MUST be arrays of objects. Date/time default to above if not mentioned. "
             "Side effects or off-label: compliance_flag=true with compliance_notes."
         )),
         ("human", "{rep_notes}")
     ])
-
-    # Force the model to output JSON that strictly matches our Pydantic schema
-    structured_llm = llm.with_structured_output(ExtractedInteraction)
-    chain = prompt | structured_llm
 
     try:
         raw_response = llm.invoke(prompt.format_messages(rep_notes=rep_notes))

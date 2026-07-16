@@ -219,7 +219,7 @@ export default function AgentChat() {
     color: '#374151',
     outline: 'none',
     resize: 'none',
-    overflow: 'hidden',
+    overflow: 'auto',
     lineHeight: 1.4,
     fontFamily: 'inherit',
     transition: 'border-color 0.15s ease',
