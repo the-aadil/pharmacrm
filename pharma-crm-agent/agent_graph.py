@@ -30,11 +30,12 @@ AVAILABLE TOOLS:
 - search_articles(query): Search medical/pharma articles.
 
 CRITICAL RULES:
-1. When user describes a visit → call log_interaction with their words.
-2. After log_interaction, show the data and ask to confirm.
-3. When user corrects ("actually", "no", "change", "the doctor was") → call edit_interaction. Use the CURRENT PENDING RECORD as current_record_json.
-4. When user confirms ("yes", "save", "confirm", "looks good") → call confirm_and_save_interaction. Use the CURRENT PENDING RECORD as final_record_json.
-5. NEVER save without explicit confirmation."""
+1. When user describes a visit → call ONLY log_interaction with their words. Do NOT call any other tool in the same turn.
+2. After log_interaction, show the extracted data clearly and ask to confirm.
+3. When user corrects ("actually", "no", "change", "the doctor was") → call ONLY edit_interaction. Use the CURRENT PENDING RECORD as current_record_json.
+4. When user confirms ("yes", "save", "confirm", "looks good") → call ONLY confirm_and_save_interaction.
+5. NEVER save without explicit confirmation.
+6. NEVER call more than one tool per turn. Pick the single most appropriate tool."""
 
 tools = [log_interaction, edit_interaction, confirm_and_save_interaction,
           search_hcp, get_hcp_briefing, suggest_next_best_action, schedule_follow_up,

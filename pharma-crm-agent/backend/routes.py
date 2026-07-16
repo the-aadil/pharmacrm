@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from agent_tools import (
-    log_interaction, edit_interaction, confirm_and_save_interaction,
+    log_interaction, edit_interaction,
     search_hcp, get_hcp_briefing, suggest_next_best_action, schedule_follow_up,
     get_upcoming_appointments, search_articles, get_db_path
 )
@@ -42,8 +42,51 @@ def create_interaction(request: FormRequest):
 @router.post("/api/interactions/confirm")
 def confirm_interaction(request: ConfirmRequest):
     try:
-        result = confirm_and_save_interaction.invoke({"final_record_json": request.record_json})
-        return result
+        record = json.loads(request.record_json)
+        db_path = get_db_path()
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO interactions
+            (hcp_name, interaction_type, duration_minutes, topics_discussed,
+             sentiment, next_steps, ai_summary, compliance_flag, compliance_notes,
+             interaction_date, interaction_time, attendees, outcomes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            record.get('hcp_name'),
+            record.get('interaction_type'),
+            record.get('duration_minutes', 30),
+            record.get('topics_discussed'),
+            record.get('sentiment'),
+            record.get('next_steps'),
+            record.get('ai_summary'),
+            1 if record.get('compliance_flag') else 0,
+            record.get('compliance_notes'),
+            record.get('date'),
+            record.get('time'),
+            record.get('attendees'),
+            record.get('outcomes')
+        ))
+
+        interaction_id = cursor.lastrowid
+
+        for prod in record.get('products', []):
+            cursor.execute(
+                "INSERT INTO interaction_products (interaction_id, product_name, samples_given, lot_number) VALUES (?, ?, ?, ?)",
+                (interaction_id, prod.get('product_name'), prod.get('samples_given', 0), prod.get('lot_number'))
+            )
+
+        for followup in record.get('follow_ups', []):
+            cursor.execute(
+                "INSERT INTO follow_ups (interaction_id, hcp_name, due_date, note) VALUES (?, ?, ?, ?)",
+                (interaction_id, record.get('hcp_name'), followup.get('due_date'), followup.get('note'))
+            )
+
+        conn.commit()
+        conn.close()
+
+        return {"status": "committed_to_db", "interaction_id": interaction_id, "message": f"Interaction #{interaction_id} saved successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

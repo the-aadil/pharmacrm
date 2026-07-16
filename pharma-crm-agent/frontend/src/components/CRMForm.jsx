@@ -4,7 +4,7 @@ import { setFormField, resetForm } from '../store/formSlice';
 import { addMessage } from '../store/chatSlice';
 import { confirmInteraction } from '../api';
 import ConfirmModal from './ConfirmModal';
-import { CheckCircle, Edit2, RotateCcw, AlertTriangle, Clock, Mic, Search, Plus } from 'lucide-react';
+import { CheckCircle, RotateCcw, AlertTriangle, Clock, Mic, Search, Plus } from 'lucide-react';
 
 const INTERACTION_TYPES = [
   { value: 'meeting', label: 'Meeting' },
@@ -75,29 +75,29 @@ function CRMForm() {
   const isStatusPending = useSelector((s) => s.form.isStatusPending);
   const [showModal, setShowModal]   = useState(false);
   const [error, setError]           = useState('');
-  const [isEditing, setIsEditing]   = useState(false);
 
   const handleChange = (key, value) => dispatch(setFormField({ key, value }));
-  const handleConfirm = () => setShowModal(true);
-
-  const handleConfirmedSave = async () => {
-    try {
-      const payload = { ...fields, compliance_flag: complianceFlag, compliance_notes: complianceNotes };
-      const result = await confirmInteraction(payload);
-      if (result.status === 'committed_to_db' || result.status === 'confirmed') {
-        dispatch(addMessage({ role: 'ai', content: 'Interaction saved to database successfully!', toolsCalled: ['confirm_and_save_interaction'] }));
-        dispatch(resetForm());
-        setIsEditing(false);
-        return;
-      }
-      setError(result.message || 'Failed to save interaction.');
-    } catch (err) {
-      setError(err.message || 'Failed to save interaction.');
+  const handleConfirm = () => {
+    if (!fields.hcp_name?.trim()) {
+      setError('Please enter an HCP name before saving.');
+      return;
     }
+    setError('');
+    setShowModal(true);
   };
 
-  const handleEdit  = () => setIsEditing(true);
-  const handleReset = () => { dispatch(resetForm()); setIsEditing(false); setError(''); };
+  const handleConfirmedSave = async () => {
+    const payload = { ...fields, compliance_flag: complianceFlag, compliance_notes: complianceNotes };
+    const result = await confirmInteraction(payload);
+    if (result.status === 'committed_to_db' || result.status === 'confirmed') {
+      dispatch(addMessage({ role: 'ai', content: 'Interaction saved to database successfully!', toolsCalled: ['confirm_and_save_interaction'] }));
+      dispatch(resetForm());
+      return;
+    }
+    throw new Error(result.message || 'Failed to save interaction.');
+  };
+
+  const handleReset = () => { dispatch(resetForm()); setError(''); };
 
   return (
     <div className="flex flex-col h-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
@@ -141,8 +141,7 @@ function CRMForm() {
                 type="text"
                 value={fields.hcp_name || ''}
                 onChange={(e) => handleChange('hcp_name', e.target.value)}
-                readOnly={!isEditing}
-                disabled={!isEditing}
+                
                 placeholder="Search or select HCP..."
                 className={INPUT_CLASS}
               />
@@ -152,7 +151,6 @@ function CRMForm() {
               <select
                 value={fields.interaction_type || 'meeting'}
                 onChange={(e) => handleChange('interaction_type', e.target.value)}
-                disabled={!isEditing}
                 className={INPUT_CLASS + ' appearance-auto cursor-pointer'}
               >
                 {INTERACTION_TYPES.map((t) => (
@@ -188,8 +186,7 @@ function CRMForm() {
             type="text"
             value={fields.attendees || ''}
             onChange={(e) => handleChange('attendees', e.target.value)}
-            readOnly={!isEditing}
-            disabled={!isEditing}
+
             placeholder="Enter names or search..."
             className={INPUT_CLASS}
           />
@@ -206,8 +203,7 @@ function CRMForm() {
           <textarea
             value={fields.topics_discussed || ''}
             onChange={(e) => handleChange('topics_discussed', e.target.value)}
-            readOnly={!isEditing}
-            disabled={!isEditing}
+
             placeholder="Enter key discussion points..."
             className={TEXTAREA_CLASS}
           />
@@ -285,8 +281,8 @@ function CRMForm() {
             ].map((opt) => (
               <div
                 key={opt.value}
-                onClick={() => isEditing && handleChange('sentiment', opt.value)}
-                className={`flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer select-none ${!isEditing ? 'pointer-events-none opacity-75' : ''}`}
+                onClick={() => handleChange('sentiment', opt.value)}
+                className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer select-none"
               >
                 <input
                   type="radio"
@@ -294,8 +290,7 @@ function CRMForm() {
                   value={opt.value}
                   checked={fields.sentiment === opt.value}
                   onChange={() => handleChange('sentiment', opt.value)}
-                  disabled={!isEditing}
-                  className="h-4 w-4 text-purple-600 border-gray-300 focus:ring-purple-500 disabled:opacity-50 cursor-pointer"
+                  className="h-4 w-4 text-purple-600 border-gray-300 focus:ring-purple-500 cursor-pointer"
                 />
                 <span>{opt.emoji} {opt.label}</span>
               </div>
@@ -313,8 +308,7 @@ function CRMForm() {
           <textarea
             value={fields.outcomes || ''}
             onChange={(e) => handleChange('outcomes', e.target.value)}
-            readOnly={!isEditing}
-            disabled={!isEditing}
+
             placeholder="Key outcomes or agreements..."
             className={TEXTAREA_CLASS}
           />
@@ -330,8 +324,7 @@ function CRMForm() {
           <textarea
             value={(fields.follow_ups || []).map((fu) => `${fu.due_date ? `Due: ${fu.due_date} — ` : ''}${fu.note || ''}`).join('\n') || ''}
             onChange={(e) => handleChange('follow_ups', e.target.value ? [{ note: e.target.value }] : [])}
-            readOnly={!isEditing}
-            disabled={!isEditing}
+
             placeholder="Describe follow-up actions..."
             className={TEXTAREA_CLASS}
           />
@@ -369,11 +362,8 @@ function CRMForm() {
       </div>
 
       <div className="mt-auto pt-4 pb-3 border-t border-gray-200 flex items-center justify-end gap-3 bg-white rounded-b-xl px-6">
-        <button onClick={handleConfirm} disabled={status !== 'pending_confirmation'} className="px-4 py-1.5 border border-gray-300 rounded-md bg-white hover:bg-gray-50 text-[11px] font-semibold flex items-center gap-1.5 text-gray-700 shadow-sm transition-colors disabled:opacity-50">
+        <button onClick={handleConfirm} className="px-4 py-1.5 border border-gray-300 rounded-md bg-white hover:bg-gray-50 text-[11px] font-semibold flex items-center gap-1.5 text-gray-700 shadow-sm transition-colors disabled:opacity-50">
           <CheckCircle size={14} /> Confirm
-        </button>
-        <button onClick={handleEdit} disabled={status !== 'pending_confirmation' || isEditing} className="px-4 py-1.5 border border-gray-300 rounded-md bg-white hover:bg-gray-50 text-[11px] font-semibold flex items-center gap-1.5 text-gray-700 shadow-sm transition-colors disabled:opacity-50">
-          <Edit2 size={14} /> Edit
         </button>
         <button onClick={handleReset} className="px-4 py-1.5 border border-gray-300 rounded-md bg-white hover:bg-gray-50 text-[11px] font-semibold flex items-center gap-1.5 text-gray-700 shadow-sm transition-colors">
           <RotateCcw size={14} /> Reset

@@ -50,7 +50,7 @@ export default function AgentChat() {
       dispatch(setIsStatusPending(false));
       dispatch(setLoading(false));
       dispatch(addMessage({ role: 'ai', content: 'Request timed out. Please try again.', toolsCalled: [] }));
-    }, 20000);
+    }, 120000);
     return () => clearTimeout(timer);
   }, [isStatusPending, chatHistory, dispatch]);
 

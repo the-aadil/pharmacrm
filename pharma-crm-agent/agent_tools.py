@@ -36,9 +36,13 @@ class FollowUpAction(BaseModel):
 class ExtractedInteraction(BaseModel):
     hcp_name: str = Field(..., description="Full name of the Healthcare Professional.")
     interaction_type: str = Field(..., description="Type of interaction. Must be 'visit', 'call', 'email', or 'conference'.")
-    duration_minutes: int = Field(..., description="Estimated duration of the meeting in minutes.")
+    duration_minutes: int = Field(default=30, description="Estimated duration of the meeting in minutes.")
     topics_discussed: str = Field(..., description="Deep, core technical summary of the medical/sales topics discussed.")
     sentiment: str = Field(..., description="The overall tone: 'positive', 'neutral', or 'negative'.")
+    attendees: str = Field(default="", description="Additional people mentioned, comma separated. If none, return empty string.")
+    date: str = Field(default="", description="Date of the interaction in YYYY-MM-DD format. If not mentioned, use today's date.")
+    time: str = Field(default="", description="Time of the interaction in HH:MM 24-hour format. If not mentioned, use current time.")
+    outcomes: str = Field(default="", description="Detailed summary of the meeting result or agreements. If not explicit, infer one logically.")
     products: List[ProductDiscussed] = Field(default_factory=list, description="List of products and samples detailed in the notes.")
     next_steps: Optional[str] = Field(None, description="Immediate tasks for the sales rep.")
     follow_ups: List[FollowUpAction] = Field(default_factory=list, description="Future calendar tasks or actions.")
@@ -60,17 +64,22 @@ def log_interaction(rep_notes: str) -> dict:
     summarizes a client interaction.
     """
 
+    today = datetime.now().strftime("%Y-%m-%d")
+    current_time = datetime.now().strftime("%H:%M")
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
-            "You are an expert compliance officer and data architect for a global pharmaceutical firm.\n"
-            "Analyze the unstructured text provided by the sales representative and map it perfectly to the required output schema.\n\n"
-            "CRITICAL FORMATTING RULES:\n"
-            "- The products field MUST be a JSON array of objects, not a string.\n"
-            "- The follow_ups field MUST be a JSON array of objects, not a string.\n"
-            "- If no products are mentioned, use an empty array.\n"
-            "- If no follow-ups are mentioned, use an empty array.\n\n"
-            "STRICT COMPLIANCE RULE: If the representative mentions any side effects, patient complaints, adverse reactions, "
-            "or off-label use cases, you MUST set compliance_flag to true and provide a thorough clinical report inside compliance_notes."
+            f"TODAY: {today} TIME: {current_time}\n"
+            "Extract pharma CRM data from rep notes. Return ONLY valid JSON.\n"
+            "Fields: hcp_name, interaction_type (visit|call|email|conference), duration_minutes (int), "
+            "topics_discussed, sentiment (positive|neutral|negative), attendees (string), date (YYYY-MM-DD), "
+            "time (HH:MM), outcomes (string), "
+            "products (array of objects, each with product_name string, samples_given int, lot_number string or null), "
+            "next_steps (string or null), "
+            "follow_ups (array of objects, each with due_date string YYYY-MM-DD, note string), "
+            "compliance_flag (boolean), compliance_notes (string or null), ai_summary.\n"
+            "Rules: products and follow_ups MUST be arrays of objects. Date/time default to above if not mentioned. "
+            "Side effects or off-label: compliance_flag=true with compliance_notes."
         )),
         ("human", "{rep_notes}")
     ])
@@ -80,12 +89,48 @@ def log_interaction(rep_notes: str) -> dict:
     chain = prompt | structured_llm
 
     try:
-        extracted_data = chain.invoke({"rep_notes": rep_notes})
+        raw_response = llm.invoke(prompt.format_messages(rep_notes=rep_notes))
 
-        # Structure the response for a Human-in-the-Loop review state
+        raw_text = raw_response.content if hasattr(raw_response, 'content') else str(raw_response)
+
+        # Strip markdown code fences if present
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned.rsplit("```", 1)[0]
+        cleaned = cleaned.strip()
+
+        parsed = json.loads(cleaned)
+
+        # Coerce string-encoded arrays back to lists (Groq llama sometimes serializes them as strings)
+        for field in ["products", "follow_ups"]:
+            val = parsed.get(field)
+            if isinstance(val, str):
+                try:
+                    parsed[field] = json.loads(val)
+                except (json.JSONDecodeError, TypeError):
+                    parsed[field] = []
+
+        # Fix None values for required fields
+        if not parsed.get("duration_minutes"):
+            parsed["duration_minutes"] = 30
+        if not parsed.get("hcp_name"):
+            parsed["hcp_name"] = "Unknown HCP"
+        if not parsed.get("interaction_type"):
+            parsed["interaction_type"] = "visit"
+        if not parsed.get("topics_discussed"):
+            parsed["topics_discussed"] = "General discussion"
+        if not parsed.get("sentiment"):
+            parsed["sentiment"] = "neutral"
+        if not parsed.get("ai_summary"):
+            parsed["ai_summary"] = "Interaction logged."
+
+        record = ExtractedInteraction(**parsed).model_dump()
+
         return {
             "status": "pending_confirmation",
-            "extracted_record": extracted_data.model_dump(),
+            "extracted_record": record,
             "message": "Data extracted successfully. Awaiting human confirmation before CRM commit."
         }
     except Exception as e:
@@ -119,27 +164,29 @@ def edit_interaction(current_record_json: str, edit_request: str) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
-            "You are a pharmaceutical CRM data processor. You will be provided with a JSON representation "
-            "of a current interaction record, and a natural language request from the sales rep to change it.\n\n"
-            "Your tasks:\n"
-            "1. Apply the requested changes to the record accurately.\n"
-            "2. Return the ENTIRE updated record.\n"
-            "3. Generate an exact audit trail detailing which fields changed, including the old and new values.\n"
-            "Do not modify fields that are not related to the edit request."
+            "You are a CRM data processor. Given a JSON record and a natural language edit request, "
+            "apply the changes and return ONLY a JSON object with two keys:\n"
+            "1. updated_record: the full updated record as a JSON object\n"
+            "2. changes: an array of objects, each with field (string), old (string), new (string) for each changed field\n"
+            "Do not modify unrelated fields. No explanation, no markdown."
         )),
-        ("human", "Current Record:\n{current_record}\n\nRequested Edit:\n{edit_request}")
+        ("human", "Record:\n{current_record}\n\nEdit:\n{edit_request}")
     ])
 
-    structured_llm = llm.with_structured_output(EditResult)
-    chain = prompt | structured_llm
-
     try:
-        edit_data = chain.invoke({
-            "current_record": current_record_json,
-            "edit_request": edit_request
-        })
+        raw_response = llm.invoke(prompt.format_messages(current_record=current_record_json, edit_request=edit_request))
+        raw_text = raw_response.content if hasattr(raw_response, 'content') else str(raw_response)
 
-        updated_record = edit_data.updated_record if isinstance(edit_data.updated_record, dict) else edit_data.updated_record.model_dump()
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned.rsplit("```", 1)[0]
+        cleaned = cleaned.strip()
+
+        parsed = json.loads(cleaned)
+        updated_record = parsed.get("updated_record", parsed)
+        changes = parsed.get("changes", [])
 
         # Write audit trail to interaction_edit_history
         old_record = json.loads(current_record_json)
@@ -148,43 +195,31 @@ def edit_interaction(current_record_json: str, edit_request: str) -> dict:
             db_path = get_db_path()
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-
             try:
-                for field in ["hcp_name", "interaction_type", "duration_minutes", "topics_discussed",
-                              "sentiment", "next_steps"]:
-                    old_val = str(old_record.get(field, ""))
-                    new_val = str(updated_record.get(field, ""))
+                for change in changes:
+                    field = change.get("field", "")
+                    old_val = str(change.get("old", ""))
+                    new_val = str(change.get("new", ""))
                     if old_val != new_val:
                         cursor.execute(
                             "INSERT INTO interaction_edit_history (interaction_id, edited_field, old_value, new_value) VALUES (?, ?, ?, ?)",
                             (interaction_id, field, old_val, new_val)
                         )
-
-                old_products = old_record.get("products", [])
-                new_products = updated_record.get("products", [])
-                if old_products != new_products:
-                    cursor.execute(
-                        "INSERT INTO interaction_edit_history (interaction_id, edited_field, old_value, new_value) VALUES (?, ?, ?, ?)",
-                        (interaction_id, "products", json.dumps(old_products), json.dumps(new_products))
-                    )
-
                 conn.commit()
             except Exception:
                 conn.rollback()
-                raise
             finally:
                 conn.close()
 
         return {
             "status": "updated",
             "updated_record": updated_record,
-            "audit_trail": [audit.model_dump() for audit in edit_data.audit_trail],
-            "message": "Record updated. Audit trail generated."
+            "message": "Record updated."
         }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Edit extraction failed: {str(e)}"
+            "message": f"Edit failed: {str(e)}"
         }
 
 # =====================================================================
@@ -208,8 +243,9 @@ def confirm_and_save_interaction(final_record_json: str) -> dict:
         cursor.execute("""
             INSERT INTO interactions 
             (hcp_name, interaction_type, duration_minutes, topics_discussed, 
-             sentiment, next_steps, ai_summary, compliance_flag, compliance_notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             sentiment, next_steps, ai_summary, compliance_flag, compliance_notes,
+             interaction_date, interaction_time, attendees, outcomes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             record.get('hcp_name'),
             record.get('interaction_type'),
@@ -219,7 +255,11 @@ def confirm_and_save_interaction(final_record_json: str) -> dict:
             record.get('next_steps'),
             record.get('ai_summary'),
             1 if record.get('compliance_flag') else 0,
-            record.get('compliance_notes')
+            record.get('compliance_notes'),
+            record.get('date'),
+            record.get('time'),
+            record.get('attendees'),
+            record.get('outcomes')
         ))
         
         interaction_id = cursor.lastrowid
