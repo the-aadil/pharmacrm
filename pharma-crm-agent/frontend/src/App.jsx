@@ -7,17 +7,37 @@ import AgentChat from './components/AgentChat';
 function App() {
   return (
     <Provider store={store}>
-      <div className="flex h-screen w-full bg-[#f8f9fa] overflow-hidden font-sans">
-        {/* Left Panel - Clean White Card */}
-        <div className="w-[65%] p-6 overflow-y-auto h-full flex justify-center">
-          <div className="w-full max-w-5xl h-[calc(100vh-3rem)]">
-            <CRMForm />
-          </div>
+      <div className="flex h-screen w-full overflow-hidden font-sans" style={{ background: '#f0f2f5', padding: '8px', gap: '4px' }}>
+
+        {/* Left Panel — CRM Form (CRMForm has its own card wrapper) */}
+        <div
+          style={{
+            flex: '1 1 65%',
+            height: '100%',
+            minWidth: 0,
+            overflow: 'hidden',
+          }}
+        >
+          <CRMForm />
         </div>
-        {/* Right Panel - Clean Border */}
-        <div className="w-[35%] bg-white border-l border-gray-200 shadow-xl flex flex-col h-full">
+
+        {/* Right Panel — AI Assistant in rounded card */}
+        <div
+          style={{
+            flex: '0 0 34%',
+            height: '100%',
+            background: '#ffffff',
+            borderRadius: '12px',
+            border: '1px solid #e2e5e9',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
           <AgentChat />
         </div>
+
       </div>
     </Provider>
   );

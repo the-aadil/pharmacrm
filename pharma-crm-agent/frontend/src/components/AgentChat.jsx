@@ -12,6 +12,7 @@ export default function AgentChat() {
   const isStatusPending = useSelector((s) => s.form.isStatusPending);
   const [input, setInput] = useState('');
   const bottomRef = useRef(null);
+  const textareaRef = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatHistory, isLoading]);
 
@@ -20,6 +21,7 @@ export default function AgentChat() {
     if (!text || isLoading) return;
     dispatch(addMessage({ role: 'user', content: text, toolsCalled: [] }));
     setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     dispatch(setLoading(true));
     dispatch(setIsStatusPending(true));
     try {
@@ -38,6 +40,7 @@ export default function AgentChat() {
     } finally {
       dispatch(setLoading(false));
       dispatch(setIsStatusPending(false));
+      textareaRef.current?.focus();
     };
   };
 
@@ -70,137 +73,317 @@ export default function AgentChat() {
       let formatted = msg.content;
       try { formatted = JSON.stringify(JSON.parse(msg.content), null, 2); } catch {}
       return (
-        <pre className="bg-[#111827] text-emerald-400 p-3 rounded-lg text-[11px] font-mono overflow-x-auto mt-2 border border-gray-800">{formatted}</pre>
+        <pre style={{
+          background: '#111827', color: '#6ee7b7', padding: '12px',
+          borderRadius: '8px', fontSize: '11px', fontFamily: 'monospace',
+          overflowX: 'auto', marginTop: '8px', border: '1px solid #1f2937',
+        }}>{formatted}</pre>
       );
     }
     const parts = msg.content.split(/(\*\*.*?\*\*)/g);
     return (
-      <div className="whitespace-pre-wrap leading-relaxed text-sm text-gray-800">
+      <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6', fontSize: '15px', color: '#1f2937' }}>
         {parts.map((part, i) => {
-          if (part.startsWith('**') && part.endsWith('**')) return <strong key={i} className="font-bold text-gray-900">{part.slice(2, -2)}</strong>;
+          if (part.startsWith('**') && part.endsWith('**')) return <strong key={i} style={{ fontWeight: 700, color: '#111827' }}>{part.slice(2, -2)}</strong>;
           return part;
         })}
       </div>
     );
   };
 
+  const hasInput = input.trim().length > 0;
+
+  /* ================================================================
+     STYLES — pixel-perfect match to image copy.png / ui1.png
+     ================================================================ */
+
+  /* Outer wrapper: full-height flex column */
+  const wrapperStyle = {
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100%',
+    minHeight: 0,
+    background: '#ffffff',
+  };
+
+  /* ── HEADER ── */
+  const headerStyle = {
+    flexShrink: 0,
+    padding: '20px 24px 16px 24px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    borderBottom: '1px solid #e5e7eb',
+  };
+
+  /* Robot emoji — using the actual emoji 🤖 to match the reference exactly */
+  const emojiStyle = {
+    fontSize: '28px',
+    lineHeight: 1,
+    flexShrink: 0,
+  };
+
+  const titleStyle = {
+    fontSize: '20px',
+    fontWeight: 700,
+    color: '#0e7490',          /* teal-blue matching reference */
+    lineHeight: 1.2,
+    letterSpacing: '-0.01em',
+  };
+
+  const subtitleStyle = {
+    fontSize: '13px',
+    fontWeight: 400,
+    color: '#6b7280',
+    lineHeight: 1.3,
+    marginTop: '2px',
+  };
+
+  /* ── MESSAGES AREA ── */
+  const messagesAreaStyle = {
+    flex: 1,
+    minHeight: 0,
+    overflowY: 'auto',
+    padding: '20px 24px',
+    scrollbarWidth: 'thin',
+    scrollbarColor: '#cbd5e1 transparent',
+  };
+
+  /* Welcome bubble — light cyan/mint, full-width */
+  const welcomeBubbleStyle = {
+    background: '#e0f7f4',
+    borderRadius: '14px',
+    padding: '16px 18px',
+    fontSize: '15px',
+    lineHeight: 1.6,
+    color: '#1f2937',
+    marginBottom: '16px',
+  };
+
+  /* User message — left blue border accent (blockquote style), NOT a blue bubble */
+  const userMsgStyle = {
+    borderLeft: '4px solid #38bdf8',
+    background: '#f0f9ff',
+    borderRadius: '0 12px 12px 0',
+    padding: '14px 18px',
+    fontSize: '15px',
+    lineHeight: 1.6,
+    color: '#1f2937',
+    marginBottom: '12px',
+  };
+
+  /* AI regular message — light mint/teal bubble */
+  const aiMsgStyle = {
+    background: '#e0f7f4',
+    borderRadius: '14px',
+    padding: '14px 18px',
+    fontSize: '15px',
+    lineHeight: 1.6,
+    color: '#1f2937',
+    marginBottom: '12px',
+  };
+
+  /* AI success message — light green background */
+  const successMsgStyle = {
+    background: '#ecfdf5',
+    border: '1px solid #a7f3d0',
+    borderRadius: '14px',
+    padding: '14px 18px',
+    fontSize: '15px',
+    lineHeight: 1.6,
+    color: '#1f2937',
+    marginBottom: '12px',
+  };
+
+  /* ── INPUT AREA ── */
+  const inputAreaStyle = {
+    flexShrink: 0,
+    padding: '14px 24px 18px 24px',
+    borderTop: '1px solid #e5e7eb',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    background: '#ffffff',
+  };
+
+  /* Textarea — subtle rounded corners, dark border, no resize handle */
+  const textareaStyle = {
+    flex: 1,
+    minHeight: '44px',
+    maxHeight: '100px',
+    background: '#ffffff',
+    border: '1.5px solid #1a1a1a',
+    borderRadius: '8px',
+    padding: '11px 16px',
+    fontSize: '15px',
+    color: '#374151',
+    outline: 'none',
+    resize: 'none',
+    overflow: 'hidden',
+    lineHeight: 1.4,
+    fontFamily: 'inherit',
+    transition: 'border-color 0.15s ease',
+  };
+
+  /* Log button — rounded rectangle matching reference */
+  const logBtnStyle = {
+    width: '50px',
+    height: '50px',
+    borderRadius: '12px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: 'none',
+    cursor: hasInput ? 'pointer' : 'not-allowed',
+    background: hasInput ? '#2563eb' : '#e5e7eb',
+    color: hasInput ? '#ffffff' : '#6b7280',
+    transition: 'all 0.15s ease',
+    flexShrink: 0,
+    boxShadow: hasInput ? '0 4px 12px rgba(37, 99, 235, 0.35)' : 'none',
+  };
+
   return (
-    <div className="flex flex-col h-full min-h-0 bg-white">
-      <div className="h-[56px] px-4 border-b border-gray-200 flex items-center justify-between bg-white shrink-0">
-        <div className="flex items-center gap-3">
-          {/* Logo/Avatar */}
-          <div className="w-8 h-8 bg-[#2563eb] rounded-full flex items-center justify-center text-white shrink-0 shadow-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" />
-              <path d="M17 22H7v-2a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4v2z" />
-              <path d="M9 16v-2h6v2" />
-            </svg>
-          </div>
+    <div style={wrapperStyle}>
 
-          {/* Text Stack */}
-          <div className="flex flex-col leading-tight">
-            <span className="text-[14px] font-semibold text-gray-900">AI Assistant</span>
-            <span className="text-[11px] text-gray-500 font-medium">Log Interaction details here via chat</span>
-          </div>
+      {/* ── HEADER ── */}
+      <header style={headerStyle}>
+        <span style={emojiStyle}>🤖</span>
+        <div>
+          <div style={titleStyle}>AI Assistant</div>
+          <div style={subtitleStyle}>Log Interaction details here via chat</div>
         </div>
-      </div>
+      </header>
 
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-white scrollbar">
+      {/* ── MESSAGES AREA ── */}
+      <div style={messagesAreaStyle}>
+
+        {/* Welcome bubble — always shown when no messages */}
         {chatHistory.length === 0 && (
-          <div className="flex justify-start my-2">
-            <div className="max-w-[90%] bg-[#e0f2fe] border-[#bae6fd] rounded-xl px-4 py-3 text-sm text-gray-800 shadow-sm relative">
-              <p>Hello! Describe your HCP interaction here, and I'll help you log it properly.</p>
-            </div>
+          <div style={welcomeBubbleStyle}>
+            Log interaction details here (e.g., "Met Dr. Smith, discussed Prodo-X efficacy, positive sentiment, shared brochure") or ask for help.
           </div>
         )}
 
+        {/* Chat messages */}
         {chatHistory.map((msg, i) => {
           const isUser = msg.role === 'user';
           const isSuccess = !isUser && isSuccessMessage(msg);
 
+          /* ── User message: left blue accent border (blockquote) ── */
           if (isUser) {
             return (
-              <div key={i} className="flex justify-end mb-2">
-                <div className="ml-auto bg-[#2563eb] text-white rounded-xl px-4 py-2.5 max-w-[80%] text-sm shadow-sm mb-2 leading-relaxed">
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
-                </div>
+              <div key={i} style={userMsgStyle}>
+                <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{msg.content}</p>
               </div>
             );
           }
 
+          /* ── Success message: green tinted ── */
           if (isSuccess) {
             return (
-              <div key={i} className="flex justify-start w-full">
-                <div className="w-full bg-[#f0fdf4] border border-[#bbf7d0] text-gray-800 px-4 py-3 rounded-xl text-sm shadow-sm leading-relaxed font-medium">
-                  <div className="flex items-start gap-2.5">
-                    <span className="text-emerald-600 text-sm mt-0.5 shrink-0">{'\u2705'}</span>
-                    <div className="flex-1 min-w-0">
-                      {renderMessageContent(msg)}
-                      {msg.toolsCalled?.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5 pt-2 border-t border-[#d1fae5]">
-                          {msg.toolsCalled.map((t, j) => (
-                            <span key={j} className="inline-flex items-center gap-1 bg-white text-[#059669] text-[10px] px-2 py-[2px] rounded-full font-mono border border-[#d1fae5] font-semibold">{t}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+              <div key={i} style={successMsgStyle}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                  <span style={{ fontSize: '16px', flexShrink: 0, marginTop: '2px' }}>✅</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {renderMessageContent(msg)}
+                    {msg.toolsCalled?.length > 0 && (
+                      <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px', paddingTop: '8px', borderTop: '1px solid #d1fae5' }}>
+                        {msg.toolsCalled.map((t, j) => (
+                          <span key={j} style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                            background: '#ffffff', color: '#059669', fontSize: '10px',
+                            padding: '2px 8px', borderRadius: '999px', fontFamily: 'monospace',
+                            border: '1px solid #d1fae5', fontWeight: 600,
+                          }}>{t}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             );
           }
 
+          /* ── Regular AI message: light mint/teal ── */
           return (
-            <div key={i} className="flex justify-start mb-2">
-              <div className="mr-auto bg-white border border-gray-200 rounded-xl px-4 py-2.5 max-w-[80%] text-sm text-gray-800 shadow-sm mb-2 leading-relaxed">
-                {renderMessageContent(msg)}
-                {msg.extractedData && Object.keys(msg.extractedData).length > 0 && (
-                  <pre className="bg-[#111827] text-emerald-400 p-3 rounded-lg text-[11px] font-mono overflow-x-auto mt-2 border border-gray-800">{JSON.stringify(msg.extractedData, null, 2)}</pre>
-                )}
-                {msg.toolsCalled?.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5 pt-2 border-t border-gray-200">
-                    {msg.toolsCalled.map((t, j) => (
-                      <span key={j} className="inline-flex items-center gap-1 bg-gray-100 text-gray-700 text-[10px] px-2 py-[2px] rounded-full font-mono border border-gray-200 font-semibold">{t}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
+            <div key={i} style={aiMsgStyle}>
+              {renderMessageContent(msg)}
+              {msg.extractedData && Object.keys(msg.extractedData).length > 0 && (
+                <pre style={{
+                  background: '#111827', color: '#6ee7b7', padding: '12px',
+                  borderRadius: '8px', fontSize: '11px', fontFamily: 'monospace',
+                  overflowX: 'auto', marginTop: '8px', border: '1px solid #1f2937',
+                }}>{JSON.stringify(msg.extractedData, null, 2)}</pre>
+              )}
+              {msg.toolsCalled?.length > 0 && (
+                <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px', paddingTop: '8px', borderTop: '1px solid #b2d8cd' }}>
+                  {msg.toolsCalled.map((t, j) => (
+                    <span key={j} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '4px',
+                      background: '#ffffff', color: '#0891b2', fontSize: '10px',
+                      padding: '2px 8px', borderRadius: '999px', fontFamily: 'monospace',
+                      border: '1px solid #b2d8cd', fontWeight: 600,
+                    }}>{t}</span>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
 
+        {/* Loading indicator */}
         {(isStatusPending || isLoading) && (
-          <div className="flex justify-start w-full">
-            <div className="bg-[#ecfeff] border border-[#cffafe] text-gray-800 text-sm px-4 py-3 rounded-xl shadow-sm">
-              <div className="flex items-center gap-1.5">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2563eb]" />
-                <span className="font-semibold">{isStatusPending ? 'Typing...' : 'Thinking...'}</span>
-              </div>
+          <div style={aiMsgStyle}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Loader2 style={{ width: '14px', height: '14px', animation: 'spin 1s linear infinite', color: '#2563eb' }} />
+              <span style={{ fontWeight: 600, fontSize: '14px' }}>{isStatusPending ? 'Typing...' : 'Thinking...'}</span>
             </div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
 
-      <div className="p-3 border-t border-gray-200 bg-white shrink-0 flex items-center gap-2 shadow-[0_-2px_10px_rgba(0,0,0,0.02)]">
-        <input
-          type="text"
+      {/* ── INPUT AREA ── */}
+      <div style={inputAreaStyle}>
+        <textarea
+          ref={textareaRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          onChange={(e) => {
+            setInput(e.target.value);
+            if (textareaRef.current) {
+              textareaRef.current.style.height = 'auto';
+              textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 100) + 'px';
+            }
+          }}
+          onKeyDown={handleKeyDown}
           placeholder="Describe Interaction..."
+          rows={1}
           disabled={isLoading}
-          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-[#2563eb] focus:border-[#2563eb] placeholder:text-gray-400"
+          style={textareaStyle}
+          onFocus={(e) => { e.target.style.borderColor = '#111827'; }}
+          onBlur={(e) => { e.target.style.borderColor = '#1a1a1a'; }}
         />
+
+        {/* Rounded rectangle "A / Log" button */}
         <button
           onClick={handleSend}
-          disabled={!input.trim() || isLoading}
-          className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-lg px-6 py-2.5 text-sm font-medium shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={isLoading || !input.trim()}
+          style={logBtnStyle}
+          onMouseEnter={(e) => { if (hasInput) e.currentTarget.style.background = '#1d4ed8'; }}
+          onMouseLeave={(e) => { if (hasInput) e.currentTarget.style.background = '#2563eb'; else e.currentTarget.style.background = '#e5e7eb'; }}
         >
           {isLoading ? (
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <div style={{
+              width: '16px', height: '16px',
+              border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#ffffff',
+              borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+            }} />
           ) : (
-            <span>Log</span>
+            <>
+              <span style={{ fontSize: '18px', fontWeight: 800, lineHeight: 1, marginBottom: '1px' }}>A</span>
+              <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', lineHeight: 1 }}>Log</span>
+            </>
           )}
         </button>
       </div>
