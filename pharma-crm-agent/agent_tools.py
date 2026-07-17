@@ -54,7 +54,7 @@ class ExtractedInteraction(BaseModel):
 # 2. INITIALIZE MODEL & IMPLEMENT THE LOG_INTERACTION TOOL
 # =====================================================================
 
-llm = ChatGroq(temperature=0.0, model_name="llama-3.1-8b-instant")
+llm = ChatGroq(temperature=0.0, model_name="llama-3.1-8b-instant", max_retries=2, request_timeout=30)
 
 @tool
 def log_interaction(rep_notes: str) -> dict:
@@ -63,6 +63,9 @@ def log_interaction(rep_notes: str) -> dict:
     structured pharma CRM interaction record. Use this tool whenever a rep 
     summarizes a client interaction.
     """
+
+    if not rep_notes or not rep_notes.strip():
+        return {"status": "error", "message": "Please provide interaction notes to log."}
 
     today = datetime.now().strftime("%Y-%m-%d")
     current_time = datetime.now().strftime("%H:%M")
@@ -267,6 +270,9 @@ def edit_interaction(current_record_json: dict, edit_request: str) -> dict:
     """
 
     current_record_str = json.dumps(current_record_json)
+
+    if not edit_request or not edit_request.strip():
+        return {"status": "error", "message": "Please describe what you want to change."}
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", (

@@ -23,7 +23,7 @@ def _clean_reply(text: str) -> str:
         return text
     cleaned = text
     for name in TOOL_NAMES:
-        cleaned = re.sub(rf'\b{re.escape(name)}\b', '', cleaned)
+        cleaned = re.sub(rf'\b{re.escape(name)}[\s]*[\(:]?', '', cleaned)
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
     return cleaned
 
@@ -57,6 +57,11 @@ def health():
 @api.post("/api/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
     try:
+        if not request.message or not request.message.strip():
+            return ChatResponse(reply="Please type a message.", status="error")
+        if len(request.message) > 5000:
+            return ChatResponse(reply="Message too long. Please keep it under 5000 characters.", status="error")
+
         config = {"configurable": {"thread_id": request.thread_id}}
         result = app.invoke(
             {"messages": [HumanMessage(content=request.message)]},
@@ -93,7 +98,7 @@ def chat(request: ChatRequest):
             status=status
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return ChatResponse(reply="Something went wrong. Please try again.", status="error")
 
 from backend.routes import router
 api.include_router(router)
