@@ -1,4 +1,5 @@
 # agent_graph.py
+import re
 import json
 from typing import TypedDict, Annotated, List, Optional
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, BaseMessage, SystemMessage
@@ -16,26 +17,51 @@ class AgentState(TypedDict):
     extracted_record: Optional[dict]
     pending_confirmation: bool
 
-SYSTEM_PROMPT = """You are a Pharma CRM AI assistant for logging HCP interactions.
+SYSTEM_PROMPT = """You are a Pharma CRM AI assistant. You help pharmaceutical sales reps log HCP interactions.
 
-AVAILABLE TOOLS:
-- log_interaction(rep_notes): Parse unstructured notes into structured CRM data. Returns status "pending_confirmation" with extracted_record.
-- edit_interaction(current_record_json, edit_request): Edit the current pending record. Takes the full JSON of current record and the user's correction.
-- confirm_and_save_interaction(final_record_json): Save confirmed record to database.
-- search_hcp(query): Search HCPs by name or specialty.
-- get_hcp_briefing(hcp_name): Get HCP profile, recent interactions, and AI briefing.
-- suggest_next_best_action(hcp_name): Get suggested talking points.
-- schedule_follow_up(hcp_name, due_description, note): Schedule a follow-up.
-- get_upcoming_appointments(rep_name): Get upcoming appointments for the rep.
-- search_articles(query): Search medical/pharma articles.
+== RESPONSE FORMAT ==
+- Write responses in plain, friendly language. Use **bold** for field labels.
+- Show extracted data as a bulleted list with **Field Name**: value format.
+- Add blank lines between paragraphs. Keep responses concise.
+- NEVER output tool names, function names, or code in your response text.
 
-CRITICAL RULES:
-1. When user describes a visit → call ONLY log_interaction with their words. Do NOT call any other tool in the same turn.
-2. After log_interaction, show the extracted data clearly and ask to confirm.
-3. When user corrects ("actually", "no", "change", "the doctor was") → call ONLY edit_interaction. Use the CURRENT PENDING RECORD as current_record_json.
-4. When user confirms ("yes", "save", "confirm", "looks good") → call ONLY confirm_and_save_interaction.
-5. NEVER save without explicit confirmation.
-6. NEVER call more than one tool per turn. Pick the single most appropriate tool."""
+== TOOLS ==
+- log_interaction: Parse notes into structured CRM data. Takes rep_notes (string).
+- edit_interaction: Edit pending record. Takes current_record_json (object) and edit_request (string).
+- confirm_and_save_interaction: Save record to DB. Takes final_record_json (object - the full record as a JSON object).
+- search_hcp: Search doctors by name/specialty. Takes query (string).
+- get_hcp_briefing: Get doctor profile and history. Takes hcp_name (string).
+- suggest_next_best_action: Get visit suggestions. Takes hcp_name (string).
+- schedule_follow_up: Create follow-up task. Takes hcp_name, due_description, note.
+- get_upcoming_appointments: Get upcoming visits. Takes rep_name (string).
+- search_articles: Search medical articles. Takes query (string).
+
+== RULES ==
+1. When user describes a visit/call → call ONLY log_interaction. Pass their ENTIRE message as rep_notes. Do NOT call any other tool.
+2. After log_interaction extracts data → show the extracted fields clearly as a bulleted list and ask: "Does this look correct?"
+3. When user says "yes", "confirm", "save", "looks good" → call ONLY confirm_and_save_interaction. Pass the EXACT pending record object as final_record_json. Do NOT reconstruct or modify it.
+4. When user corrects ("actually", "no", "change", "wrong") → call ONLY edit_interaction.
+5. NEVER save without explicit user confirmation.
+6. Call ONLY ONE tool per response. Never call multiple tools at once.
+7. NEVER write tool names (log_interaction, confirm_and_save_interaction, search_hcp, etc.) in your response text. The tools are called silently.
+8. If a search finds no results, say so in plain language and offer to log the interaction anyway.
+9. For greetings or general questions, respond directly without calling tools."""
+
+TOOL_NAMES = [
+    "log_interaction", "edit_interaction", "confirm_and_save_interaction",
+    "search_hcp", "get_hcp_briefing", "suggest_next_best_action",
+    "schedule_follow_up", "get_upcoming_appointments", "search_articles"
+]
+
+def _strip_tool_names(text: str) -> str:
+    """Remove leaked tool names from AI response text."""
+    if not text:
+        return text
+    cleaned = text
+    for name in TOOL_NAMES:
+        cleaned = re.sub(rf'\b{re.escape(name)}\b', '', cleaned)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+    return cleaned
 
 tools = [log_interaction, edit_interaction, confirm_and_save_interaction,
           search_hcp, get_hcp_briefing, suggest_next_best_action, schedule_follow_up,
@@ -50,20 +76,34 @@ tool_node = ToolNode(tools=tools)
 def chatbot(state: AgentState):
     messages = state["messages"]
 
-    if not any(isinstance(m, SystemMessage) and "Pharma CRM" in str(m.content) for m in messages):
+    if not any(isinstance(m, SystemMessage) and "Pharma CRM AI assistant" in str(m.content) for m in messages):
         messages = [SystemMessage(content=SYSTEM_PROMPT)] + list(messages)
 
     if state.get("extracted_record") and state.get("pending_confirmation"):
-        record_json = json.dumps(state["extracted_record"])
+        record_json = json.dumps(state["extracted_record"], indent=2)
         context = (
-            f"CURRENT PENDING RECORD (not yet saved):\n{record_json}\n\n"
-            "This record is awaiting confirmation. "
-            "If user corrects anything, call edit_interaction with current_record_json=this JSON. "
-            "If user confirms, call confirm_and_save_interaction with final_record_json=this JSON."
+            "=== PENDING RECORD (awaiting user confirmation) ===\n"
+            f"{record_json}\n"
+            "=== END PENDING RECORD ===\n\n"
+            "The above record was extracted from the rep's notes. Show these fields to the user as a bulleted list "
+            "using **Field Name**: value format and ask them to confirm.\n\n"
+            "IMPORTANT: When the user confirms (says 'yes', 'confirm', 'save', 'looks good'), "
+            "you MUST call confirm_and_save_interaction with the final_record_json parameter set to "
+            "the EXACT record object shown above (as a JSON object, not a string). Pass the record directly."
+            "Do NOT add, remove, or rename any fields.\n\n"
+            "If the user wants to make corrections, call edit_interaction instead."
         )
         messages = list(messages) + [SystemMessage(content=context)]
 
     response = llm_with_tools.invoke(messages)
+
+    if hasattr(response, "content") and response.content:
+        cleaned = _strip_tool_names(str(response.content))
+        if cleaned:
+            response.content = cleaned
+        elif not response.tool_calls:
+            response.content = "I've processed your request. Is there anything else you need?"
+
     return {"messages": [response]}
 
 # =====================================================================

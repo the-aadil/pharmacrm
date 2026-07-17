@@ -1,6 +1,7 @@
 # backend/main.py
 import sys
 import os
+import re
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
@@ -9,6 +10,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 from agent_graph import app
+
+TOOL_NAMES = [
+    "log_interaction", "edit_interaction", "confirm_and_save_interaction",
+    "search_hcp", "get_hcp_briefing", "suggest_next_best_action",
+    "schedule_follow_up", "get_upcoming_appointments", "search_articles"
+]
+
+def _clean_reply(text: str) -> str:
+    """Strip leaked tool names from AI reply text."""
+    if not text:
+        return text
+    cleaned = text
+    for name in TOOL_NAMES:
+        cleaned = re.sub(rf'\b{re.escape(name)}\b', '', cleaned)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+    return cleaned
 
 class ChatRequest(BaseModel):
     message: str
@@ -55,15 +72,22 @@ def chat(request: ChatRequest):
         for msg in messages:
             if hasattr(msg, "tool_calls") and msg.tool_calls:
                 for tc in msg.tool_calls:
-                    tools_called.append(tc.get("name", "unknown"))
+                    name = tc.get("name", "unknown") if isinstance(tc, dict) else getattr(tc, "name", "unknown")
+                    if name not in tools_called:
+                        tools_called.append(name)
 
         for msg in reversed(messages):
-            if hasattr(msg, "content") and msg.content and msg.type == "ai":
-                reply = msg.content if isinstance(msg.content, str) else str(msg.content)
+            msg_type = getattr(msg, "type", None)
+            content = getattr(msg, "content", None)
+            has_tool_calls = hasattr(msg, "tool_calls") and msg.tool_calls
+            if msg_type == "ai" and content and not has_tool_calls:
+                reply = content if isinstance(content, str) else str(content)
                 break
 
+        reply = _clean_reply(reply) or "Processing complete."
+
         return ChatResponse(
-            reply=reply or "Processing complete.",
+            reply=reply,
             extracted_data=extracted_data,
             tools_called=tools_called,
             status=status

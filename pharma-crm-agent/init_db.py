@@ -151,6 +151,8 @@ def initialize_database():
         ("Dr. Lisa Park", "Rheumatologist"),
         ("Dr. James Wong", "Neurologist"),
         ("Dr. Priya Sharma", "Oncologist"),
+        ("Dr. Aadil Khan", "General Practice"),
+        ("Dr. Aadil", "General Practice"),
     ]
     for name, specialty in seed_hcps:
         cursor.execute("SELECT COUNT(*) FROM hcps WHERE name = ?", (name,))

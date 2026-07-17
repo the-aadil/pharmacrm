@@ -70,16 +70,28 @@ def log_interaction(rep_notes: str) -> dict:
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
             f"TODAY: {today} TIME: {current_time}\n"
-            "Extract pharma CRM data from rep notes. Return ONLY valid JSON.\n"
-            "Fields: hcp_name, interaction_type (visit|call|email|conference), duration_minutes (int), "
-            "topics_discussed, sentiment (positive|neutral|negative), attendees (string), date (YYYY-MM-DD), "
-            "time (HH:MM), outcomes (string), "
-            "products (array of objects, each with product_name string, samples_given int, lot_number string or null), "
-            "next_steps (string or null), "
-            "follow_ups (array of objects, each with due_date string YYYY-MM-DD, note string), "
-            "compliance_flag (boolean), compliance_notes (string or null), ai_summary (2-3 sentence executive summary of the encounter).\n"
-            "Rules: products and follow_ups MUST be arrays of objects. Date/time default to above if not mentioned. "
-            "Side effects or off-label: compliance_flag=true with compliance_notes."
+            "You are a CRM data extractor. Extract structured data from the rep's notes.\n"
+            "Return ONLY a valid JSON object. No markdown, no explanation.\n\n"
+            "REQUIRED fields:\n"
+            "- hcp_name: Full name of the doctor/HCP. ALWAYS required. If the rep mentions a name, extract it. "
+            "Capitalize properly (e.g. 'Dr. Zahir Shaikh'). If no name is mentioned, use 'Unknown HCP'.\n"
+            "- interaction_type: One of 'visit', 'call', 'email', 'conference'. Default: 'visit'.\n"
+            "- duration_minutes: Integer. Extract any duration mentioned. Default: 30.\n"
+            "- topics_discussed: Summary of what was discussed. Default: 'General discussion'.\n"
+            "- sentiment: One of 'positive', 'neutral', 'negative'. Default: 'neutral'.\n"
+            "- ai_summary: 2-3 sentence executive summary.\n\n"
+            "OPTIONAL fields:\n"
+            "- attendees: Comma-separated names. Empty string if none.\n"
+            "- date: YYYY-MM-DD format. Use today if not mentioned.\n"
+            "- time: HH:MM 24-hour format. Use current time if not mentioned.\n"
+            "- outcomes: Meeting outcomes. Infer if not explicit.\n"
+            "- products: Array of objects with product_name (string), samples_given (int), lot_number (string or null).\n"
+            "- next_steps: String or null.\n"
+            "- follow_ups: Array of objects with due_date (YYYY-MM-DD string), note (string).\n"
+            "- compliance_flag: Boolean. Set true if side effects, adverse events, or off-label use mentioned.\n"
+            "- compliance_notes: String or null.\n\n"
+            "Example input: 'Met Dr. Smith for 20 min, discussed Prodo-X, gave 5 samples, positive, follow up next week'\n"
+            'Example output: {{"hcp_name": "Dr. Smith", "interaction_type": "visit", "duration_minutes": 20, ...}}'
         )),
         ("human", "{rep_notes}")
     ])
@@ -99,16 +111,67 @@ def log_interaction(rep_notes: str) -> dict:
 
         parsed = json.loads(cleaned)
 
-        # Coerce string-encoded arrays back to lists (Groq llama sometimes serializes them as strings)
-        for field in ["products", "follow_ups"]:
+        # === COMPREHENSIVE NORMALIZATION ===
+        # Groq llama-3.1-8b-instant often returns wrong types and field names.
+        # We must normalize everything before Pydantic validation.
+
+        # 1. Coerce string-encoded arrays back to lists
+        for field in ["products", "follow_ups", "next_steps", "outcomes", "attendees"]:
             val = parsed.get(field)
             if isinstance(val, str):
                 try:
                     parsed[field] = json.loads(val)
                 except (json.JSONDecodeError, TypeError):
-                    parsed[field] = []
+                    parsed[field] = val
 
-        # Fix None values for required fields
+        # 2. Normalize products array
+        raw_products = parsed.get("products", [])
+        if not isinstance(raw_products, list):
+            raw_products = []
+        fixed_products = []
+        for p in raw_products:
+            if isinstance(p, str):
+                fixed_products.append({"product_name": p, "samples_given": 0, "lot_number": None})
+            elif isinstance(p, dict):
+                name = p.get("product_name") or p.get("name") or p.get("product") or "Unknown Product"
+                samples = p.get("samples_given") or p.get("quantity") or p.get("samples") or 0
+                lot = p.get("lot_number") or p.get("lot") or None
+                fixed_products.append({"product_name": str(name), "samples_given": int(samples or 0), "lot_number": lot})
+        parsed["products"] = fixed_products
+
+        # 3. Normalize follow_ups array
+        raw_followups = parsed.get("follow_ups", [])
+        if not isinstance(raw_followups, list):
+            raw_followups = []
+        fixed_followups = []
+        for f in raw_followups:
+            if isinstance(f, str):
+                fixed_followups.append({"due_date": today, "note": f})
+            elif isinstance(f, dict):
+                ddate = f.get("due_date") or f.get("date") or today
+                note = f.get("note") or f.get("description") or f.get("action") or ""
+                fixed_followups.append({"due_date": str(ddate), "note": str(note)})
+        parsed["follow_ups"] = fixed_followups
+
+        # 4. Normalize string fields that LLM might return as list/dict/None
+        for field in ["attendees", "outcomes", "topics_discussed", "next_steps", "compliance_notes", "ai_summary"]:
+            val = parsed.get(field)
+            if isinstance(val, list):
+                parsed[field] = ", ".join(str(v) for v in val) if val else ""
+            elif isinstance(val, dict):
+                parsed[field] = str(val.get("text", "") or val.get("summary", "") or "")
+            elif val is None:
+                parsed[field] = ""
+
+        # 5. Normalize date/time - must be strings
+        for field in ["date", "time"]:
+            val = parsed.get(field)
+            if val is None or val == "" or (isinstance(val, str) and val.lower() in ("not provided", "n/a", "unknown")):
+                parsed[field] = today if field == "date" else current_time
+            elif not isinstance(val, str):
+                parsed[field] = str(val)
+
+        # 6. Fix None/empty values for required fields
         if not parsed.get("duration_minutes"):
             parsed["duration_minutes"] = 30
         if not parsed.get("hcp_name"):
@@ -121,6 +184,51 @@ def log_interaction(rep_notes: str) -> dict:
             parsed["sentiment"] = "neutral"
         if not parsed.get("ai_summary"):
             parsed["ai_summary"] = "Interaction logged."
+
+        # 7. Normalize interaction_type to valid values
+        itype = str(parsed.get("interaction_type", "")).lower().strip()
+        type_map = {
+            "meeting": "visit", "visit": "visit", "in-person": "visit",
+            "phone": "call", "telephone": "call", "call": "call",
+            "email": "email", "mail": "email",
+            "conference": "conference", "congress": "conference", "seminar": "conference",
+        }
+        parsed["interaction_type"] = type_map.get(itype, "visit")
+
+        # 8. Normalize sentiment
+        sent = str(parsed.get("sentiment", "")).lower().strip()
+        sent_map = {"positive": "positive", "good": "positive", "great": "positive", "favorable": "positive",
+                    "negative": "negative", "bad": "negative", "poor": "negative", "unfavorable": "negative"}
+        parsed["sentiment"] = sent_map.get(sent, "neutral") if sent else "neutral"
+
+        # 9. Normalize compliance_flag
+        cf = parsed.get("compliance_flag")
+        if isinstance(cf, str):
+            parsed["compliance_flag"] = cf.lower() in ("true", "yes", "1")
+        elif not isinstance(cf, bool):
+            parsed["compliance_flag"] = False
+
+        # 10. Normalize duration_minutes
+        dm = parsed.get("duration_minutes")
+        if isinstance(dm, str):
+            try:
+                parsed["duration_minutes"] = int(dm)
+            except (ValueError, TypeError):
+                parsed["duration_minutes"] = 30
+        elif not isinstance(dm, int):
+            parsed["duration_minutes"] = 30
+
+        # 11. Remove HCP name from attendees
+        attendees = parsed.get("attendees", "")
+        hcp_name = parsed.get("hcp_name", "")
+        if attendees and hcp_name:
+            attendees_list = [a.strip() for a in str(attendees).split(",") if a.strip()]
+            attendees_list = [a for a in attendees_list if a.lower() != hcp_name.lower()]
+            parsed["attendees"] = ", ".join(attendees_list)
+
+        # 12. Ensure ai_summary is not empty
+        if not parsed.get("ai_summary") or parsed["ai_summary"] in ("Not Provided", "not provided"):
+            parsed["ai_summary"] = f"Interaction with {parsed.get('hcp_name', 'HCP')} regarding {parsed.get('topics_discussed', 'general topics')}."
 
         record = ExtractedInteraction(**parsed).model_dump()
 
@@ -151,12 +259,14 @@ class EditResult(BaseModel):
     audit_trail: List[AuditEntry] = Field(default_factory=list, description="List of changes made")
 
 @tool
-def edit_interaction(current_record_json: str, edit_request: str) -> dict:
+def edit_interaction(current_record_json: dict, edit_request: str) -> dict:
     """
     Modifies an existing pending or saved CRM interaction based on a natural language request.
     It returns the updated record and an audit trail of the exact changes made.
     Writes audit trail to interaction_edit_history table atomically.
     """
+
+    current_record_str = json.dumps(current_record_json)
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
@@ -170,7 +280,7 @@ def edit_interaction(current_record_json: str, edit_request: str) -> dict:
     ])
 
     try:
-        raw_response = llm.invoke(prompt.format_messages(current_record=current_record_json, edit_request=edit_request))
+        raw_response = llm.invoke(prompt.format_messages(current_record=current_record_str, edit_request=edit_request))
         raw_text = raw_response.content if hasattr(raw_response, 'content') else str(raw_response)
 
         cleaned = raw_text.strip()
@@ -185,7 +295,7 @@ def edit_interaction(current_record_json: str, edit_request: str) -> dict:
         changes = parsed.get("changes", [])
 
         # Write audit trail to interaction_edit_history
-        old_record = json.loads(current_record_json)
+        old_record = current_record_json if isinstance(current_record_json, dict) else json.loads(current_record_str)
         interaction_id = old_record.get("id")
         if interaction_id:
             db_path = get_db_path()
@@ -223,14 +333,14 @@ def edit_interaction(current_record_json: str, edit_request: str) -> dict:
 # =====================================================================
 
 @tool
-def confirm_and_save_interaction(final_record_json: str) -> dict:
+def confirm_and_save_interaction(final_record_json: dict) -> dict:
     """
     Commits a verified and approved interaction record into the CRM database.
     Use ONLY when the rep confirms the extracted data is correct.
-    Input should be a JSON string of the extracted_record.
+    Input should be the complete extracted_record as a JSON object.
     """
     try:
-        record = json.loads(final_record_json)
+        record = final_record_json
 
         db_path = get_db_path()
         conn = sqlite3.connect(db_path)

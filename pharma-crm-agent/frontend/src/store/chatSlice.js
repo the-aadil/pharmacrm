@@ -7,7 +7,7 @@ const chatSlice = createSlice({
       { role: 'ai', content: 'Hello! Describe your HCP interaction and I will log it for you.', toolsCalled: [] },
     ],
     isLoading: false,
-    activeTool: null, // Track which tool is currently being used
+    activeTool: null,
   },
   reducers: {
     addMessage(state, action) {
