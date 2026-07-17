@@ -1,5 +1,7 @@
 import { createSlice } from '@reduxjs/toolkit';
 
+const newThreadId = () => crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
+
 const chatSlice = createSlice({
   name: 'chat',
   initialState: {
@@ -8,6 +10,7 @@ const chatSlice = createSlice({
     ],
     isLoading: false,
     activeTool: null,
+    threadId: newThreadId(),
   },
   reducers: {
     addMessage(state, action) {
@@ -23,6 +26,7 @@ const chatSlice = createSlice({
       state.messages = [
         { role: 'ai', content: 'Hello! Describe your HCP interaction and I will log it for you.', toolsCalled: [] },
       ];
+      state.threadId = newThreadId();
     },
   },
 });

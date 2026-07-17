@@ -10,6 +10,7 @@ export default function AgentChat() {
   const chatHistory = useSelector((s) => s.chat.messages);
   const isLoading = useSelector((s) => s.chat.isLoading);
   const isStatusPending = useSelector((s) => s.form.isStatusPending);
+  const threadId = useSelector((s) => s.chat.threadId);
   const [input, setInput] = useState('');
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
@@ -25,7 +26,7 @@ export default function AgentChat() {
     dispatch(setLoading(true));
     dispatch(setIsStatusPending(true));
     try {
-      const res = await sendMessage(text);
+      const res = await sendMessage(text, threadId);
       dispatch(addMessage({
         role: 'ai',
         content: res.reply || 'Processing complete.',
@@ -50,7 +51,7 @@ export default function AgentChat() {
       dispatch(setIsStatusPending(false));
       dispatch(setLoading(false));
       dispatch(addMessage({ role: 'ai', content: 'Request timed out. Please try again.', toolsCalled: [] }));
-    }, 120000);
+    }, 35000);
     return () => clearTimeout(timer);
   }, [isStatusPending, chatHistory, dispatch]);
 
