@@ -164,7 +164,13 @@ def edit_interaction(current_record_json: str, edit_request: str) -> dict:
             "apply the changes and return ONLY a JSON object with two keys:\n"
             "1. updated_record: the full updated record as a JSON object\n"
             "2. changes: an array of objects, each with field (string), old (string), new (string) for each changed field\n"
-            "Do not modify unrelated fields. No explanation, no markdown."
+            "Do not modify unrelated fields. No explanation, no markdown.\n"
+            "Examples of edit requests:\n"
+            "- 'doctor name is John Smith' → update hcp_name to 'John Smith'\n"
+            "- 'the name is Dr. Jane Doe' → update hcp_name to 'Dr. Jane Doe'\n"
+            "- 'duration is 20 minutes' → update duration_minutes to 20\n"
+            "- 'change sentiment to negative' → update sentiment to 'negative'\n"
+            "- 'wrong name, it was actually Dr. Brown' → update hcp_name to 'Dr. Brown'"
         )),
         ("human", "Record:\n{current_record}\n\nEdit:\n{edit_request}")
     ])
